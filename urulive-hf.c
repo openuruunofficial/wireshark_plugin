@@ -13,7 +13,7 @@
  *
  * Copyright (C) 2006-2010  a'moaca' and cjkelly1
  *
- * $Id: $
+ * $Id$
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>

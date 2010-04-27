@@ -14,7 +14,7 @@
  * Copyright (C) 2005-2006  The Alcugs Project Server Team
  * Copyright (C) 2006-2010  a'moaca'
  *
- * $Id: $
+ * $Id$
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>

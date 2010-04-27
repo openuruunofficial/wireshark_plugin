@@ -1,7 +1,7 @@
 # Makefile.am
 # Automake file for Uru plugin
 #
-# $Id: $
+# $Id$
 #
 # Wireshark - Network traffic analyzer
 # By Gerald Combs <gerald@wireshark.org>

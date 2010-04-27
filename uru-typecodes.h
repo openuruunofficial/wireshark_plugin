@@ -1,7 +1,7 @@
 /*
  * This information was provided by cjkelly1.
  *
- * $Id: $
+ * $Id$
  */
 
 #ifndef _URU_TYPECODES_H_

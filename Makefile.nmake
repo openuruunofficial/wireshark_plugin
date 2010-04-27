@@ -2,7 +2,7 @@
 # nmake file for Wireshark plugin
 #
 # Wireshark-Id: Makefile.nmake 27579 2009-03-02 18:57:35Z gerald 
-# $Id: $
+# $Id$
 #
 
 include ..\..\config.nmake

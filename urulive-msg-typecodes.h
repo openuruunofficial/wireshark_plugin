@@ -4,7 +4,7 @@
  *
  */
 
-/* $Id: $ */
+/* $Id$ */
 
 #ifndef _URULIVE_MSG_TYPECODES_H_
 #define _URULIVE_MSG_TYPECODES_H_
