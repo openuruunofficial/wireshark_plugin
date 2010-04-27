@@ -1,0 +1,9 @@
+Uru Wireshark plugin
+====================
+Original basic version written for the Alcugs project by: a'moaca'
+except uru-prot.h and uru-vaultstrs.h, from the Alcugs server source
+(see the AUTHORS-ALCUGS file)
+
+Uru Live (MOUL) plugin
+======================
+Written by a'moaca' and cjkelly1

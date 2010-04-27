@@ -1,0 +1,36 @@
+This dissector was originally, in the mists of time, largely based on
+information in the Alcugs server source code. This includes field names,
+the actual dissection logic, and some of the names and descriptions
+(e.g. plNetMsg names). Having the names match Alcugs was a good thing at
+the time, as the plugin was written for working with Alcugs.
+
+Hence, if you are intimate with the original names, you will find many
+things named incorrectly, even when dissecting MOUL traffic. If this
+bothers you, submit a patch.
+
+In the preferences dialog you can provide a directory containing decrypted
+SDL files and the SDL parsing uses them to accurately parse the messages
+and print the variable names. If you are using Windows and are having any
+trouble with this feature, see the extra instructions in INSTALL.
+
+Be careful with encrypted connections! If you provide a bad key, the plugin
+will trust you and use it. The typical signs are lots of
+"(Negotiation) Unknown" packets, or half the conversation vanishing into
+"[TCP segment of a reassembled PDU]". Another is incredibly slow loading of
+traces.
+
+Caveats:
+- This version of the plugin requires Wireshark version 1.2.x. It is known
+  not to work properly with the development trunk (AKA 1.3.x).
+- The plugin has been only lightly tested against bad packets.
+- The plugin has not been tested compiled statically.
+
+TODO:
+- Update field names, etc. to match Cyan's names.
+- Incremental verification of message lengths throughout entire dissection
+  process (see also comment about the "broken brainStack").
+- More dissection: packets matching uru.incomplete (and uru.error).
+- Verification of checksum (UU protocol).
+
+
+$Id: $

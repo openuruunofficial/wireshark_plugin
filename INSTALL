@@ -1,0 +1,67 @@
+As this is not distributed as part of the Wireshark source, a few extra steps
+are required to compile the plugin.
+
+1.) Get the Wireshark source from http://www.wireshark.org/download.html
+
+2.) Untar it somewhere.
+
+3.) Copy this directory, placing its contents in a new plugins/uru
+    directory.
+
+4a.) For non-Windows: now you must edit the top-level Makefile.am,
+    configure.in, and plugins/Makefile.am. The easiest way to do this is
+    to apply the included patch. The patch was generated for 1.2.1 and
+    will fail for versions older than 1.2.0. At the top level, run:
+
+    patch -p1 < plugins/uru/build.patch
+
+    Then run automake and autoconf.
+
+4b.) For Windows: edit Makefile.nmake, plugins/Makefile.nmake, and if you
+     plan to build an installer (do this for MSVC versions 7 and up),
+     packaging/nsis/wireshark.nsi. If you can apply the build.patch it
+     includes the changes necessary. Otherwise... the changes you need are
+     at the beginning of build.patch, apply them manually.
+
+5.) Compile and install normally as described in the Wireshark INSTALL file.
+
+    For compiles on unix, you may have trouble with generating the plugin.c
+    file, which requires executing tools/make-dissector-reg.py, which may
+    not have the executable bit set. If you get an error about
+    ../../tools/make-dissector-reg.py not being executable, it can be remedied
+    with:
+
+    chmod +x tools/make-dissector-reg.py
+
+    For Windows, with newer versions of the compiler, check out
+    http://wiki.wireshark.org/Development/MSVC7
+
+6.) You may wish to use packet coloring. This is not set up by the plugins,
+    you must add it yourself. An uru-packetcolors file is included in this
+    directory; you can import it from the View->Coloring Rules... dialog if
+    you wish. Make sure the Uru rules are higher in the list than UDP and TCP.
+    You can also change all the colors in that dialog.
+
+
+Having SDL file trouble on Windows?
+
+There seems to be a problem somewhere between glib and Windows in the
+compiler or a DLL or having to do with unicode or something, and maybe only
+with version 8 compilers (Visual C++ 2005/.NET 2.0/etc.) or something that
+causes the glib text scanner to not work.
+
+If you provide a correct directory name (trailing \ not required but
+allowed) and you are not getting SDL variable names, you have this
+situation. Edit packet-uru.c and put in the following line near the top:
+    #define GSCANNER_IS_BROKEN
+and recompile. This action includes a new copy of the same scanner from
+glib directly into the Uru DLL, where it seems to work okay.
+
+Additionally, for me Wireshark crashes if you change the SDL path with a
+trace open. It's only a problem on Windows (with or without the scanner
+being broken) and I'm not presently up to figuring out how the hell to do a
+full-on Windows debug Wireshark build and hook it into the development
+environment to debug it and stuff. So just close any packet trace file you
+have open before changing the value and then reopen the file; that works
+fine. Patches welcome, complaints not, or you will get an earful about
+Windows. :)
