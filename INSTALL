@@ -10,8 +10,9 @@ are required to compile the plugin.
 
 4a.) For non-Windows: now you must edit the top-level Makefile.am,
     configure.in, and plugins/Makefile.am. The easiest way to do this is
-    to apply the included patch. The patch was generated for 1.2.1 and
-    will fail for versions older than 1.2.0. At the top level, run:
+    to apply the included patch. The patch was generated for trunk revision
+    32637 and may fail for significantly newer revisions. At the top level,
+    run:
 
     patch -p1 < plugins/uru/build.patch
 

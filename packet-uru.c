@@ -45,7 +45,6 @@
 #include <epan/crypt/crypt-md5.h> /* for UU checksum validation */
 #include <epan/timestamp.h>
 #include <epan/conversation.h>
-#include <epan/emem.h>
 #include <epan/dissectors/packet-frame.h>
 #include <epan/dissectors/packet-tcp.h>
 #include <epan/crypt/crypt-rc4.h>
@@ -64,7 +63,7 @@
 
 /* Define this if you have the change from revision 31767 in your
    Wireshark tree. */
-#undef HAVE_REASSEMBLED_LENGTH
+#define HAVE_REASSEMBLED_LENGTH
 
 #define EPHEMERAL_BUFS
 #define RC4_CACHE_FREQ 40000 /* this should probably be tuned */
@@ -388,8 +387,14 @@ static struct rc4_key * find_rc4_key(guint32);
 static guint16 get_v2_value(guint16);
 static inline guint16 get_9_value(guint16, enum fourstate);
 static guint16 live_translate(guint16);
-static void desegment_urutcp(tvbuff_t *, packet_info *, proto_tree *,
-			     emem_tree_t *);
+static void
+call_uru_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+		   gboolean set_info_column, int packet_len, guint32 seq);
+#ifdef DEVELOPMENT
+static void
+uru_maybe_decrypt(tvbuff_t *tvb, int offset, int len, packet_info *pinfo,
+		  proto_tree *tree, guint32 seq);
+#endif /* DEVELOPMENT */
 
 
 /* Code to actually dissect the packets */
@@ -4159,10 +4164,8 @@ recursively_dissect_sdl(tvbuff_t *ntvb, gint noffset, proto_tree *tree,
      (which still exists in MOUL), because it can cause the dissector
      to lose track of the connection, if there are other messages following
      it in the same packet.
-     In truth the dissector should do such length tests throughout, or as
-     a simpler alternative, catch malformed packet exceptions itself at a
-     level where it knows the message length already, so that dissection
-     can continue unharmed after the malformed message. XXX */
+     XXX Why did I need this? call_uru_dissector() should catch any bounds
+     errors! */
   if (tvb_length_remaining(ntvb, noffset) < 2) {
     tf = proto_tree_add_boolean_format(tree, hf_uru_dissection_error, ntvb,
 				       noffset-3, 3, 1,
@@ -7964,8 +7967,8 @@ dissect_urulive_message(tvbuff_t *etvb,
 	PROTO_ITEM_SET_GENERATED(tf);
       }
       offset += 4;
-      proto_tree_add_item(uru_tree, hf_urulive_gamemgr_reqid, tvb,
-			  offset, 4, TRUE);
+      ti = proto_tree_add_item(uru_tree, hf_urulive_gamemgr_reqid, tvb,
+			       offset, 4, TRUE);
       offset += 4;
       proto_tree_add_item(uru_tree, hf_urulive_gamemgr_gameid, tvb,
 			  offset, 4, TRUE);
@@ -8073,8 +8076,10 @@ dissect_urulive_message(tvbuff_t *etvb,
     }
     else { /* not setup packets - let us try to type and dissect */
       if (tree) {
-	/* hide setup request ID */
-	PROTO_ITEM_SET_HIDDEN(ti);
+	if (global_uru_hide_stuff) {
+	  /* hide setup request ID */
+	  PROTO_ITEM_SET_HIDDEN(ti);
+	}
 	if (!isclient && msgtype <= kGameCliOwnerChangeMsg) {
 	  /* join/leave and owner messages */
 	  proto_tree_add_item(uru_tree, hf_urulive_gamemgr_clientid, tvb,
@@ -10160,10 +10165,65 @@ dissect_urulive(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
   }
 
   if (global_urulive_desegment && pinfo->can_desegment) {
-    emem_tree_t *which;
-    which = isclient ? live_conv->c2s_multisegment_pdus
-		     : live_conv->s2c_multisegment_pdus;
-    desegment_urutcp(tvb, pinfo, tree, which);
+    gboolean new_frame;
+    gint offset = 0, remaining, new_len = 0;
+    struct tcpinfo *tcpinfo;
+    tvbuff_t *next_tvb;
+    gboolean final = FALSE, was_writeable = TRUE;
+
+    if (isclient) {
+      new_frame = (live_conv->c2s_last_frame != pinfo->fd->num);
+      live_conv->c2s_last_frame = pinfo->fd->num;
+    }
+    else {
+      new_frame = (live_conv->s2c_last_frame != pinfo->fd->num);
+      live_conv->s2c_last_frame = pinfo->fd->num;
+    }
+    if (!new_frame && !col_get_writable(pinfo->cinfo)) {
+      was_writeable = FALSE;
+      /* yes I really want to append to the column, thank you very much */
+      col_set_writable(pinfo->cinfo, TRUE);
+    }
+
+    tcpinfo = pinfo->private_data;
+    remaining = tvb_reported_length(tvb);
+    new_len = get_urulive_message_len(&final, pinfo, tvb, offset,
+				      tcpinfo->seq+offset);
+    while (remaining >= new_len) {
+      next_tvb = tvb_new_subset(tvb, offset, new_len, new_len);
+      call_uru_dissector(next_tvb, pinfo, tree, new_frame,
+			 tvb_reported_length(tvb), tcpinfo->seq+offset);
+      new_frame = FALSE;
+      offset += new_len;
+      remaining -= new_len;
+      if (remaining > 0) {
+	new_len = get_urulive_message_len(&final, pinfo, tvb, offset,
+					  tcpinfo->seq+offset);
+      }
+      else {
+	break;
+      }
+    }
+    if (remaining > 0) {
+      /* need reassembly */
+      pinfo->desegment_offset = offset;
+      pinfo->desegment_len /*= DESEGMENT_ONE_MORE_SEGMENT;*/
+	= final ? (new_len-remaining) : DESEGMENT_ONE_MORE_SEGMENT;
+#ifdef DEVELOPMENT
+      if (tree) {
+	proto_item *ti;
+	ti = proto_tree_add_text(tree, tvb, offset, -1,
+				 "Incomplete message (%u byte%s)", remaining,
+				 plurality(remaining, "", "s"));
+	PROTO_ITEM_SET_GENERATED(ti);
+	uru_maybe_decrypt(tvb, offset, remaining, pinfo, tree,
+			  tcpinfo->seq+offset);
+      }
+#endif
+    }
+    if (!was_writeable) {
+      col_set_writable(pinfo->cinfo, FALSE);
+    }
   }
   else {
     dissect_urulive_message(tvb, pinfo, tree,
@@ -11062,7 +11122,7 @@ proto_register_urulive(void)
   prefs_register_bool_preference(uru_module, "private_keys",
 				 "Use D-H private keys (IGNORED)",
 				 "This option is ignored; Wireshark must "
-				 "be compiled with ligbcrypt to use this "
+				 "be compiled with libgcrypt to use this "
 				 "functionality.",
 				 &global_urulive_use_private_keys);
 #endif
@@ -11127,8 +11187,12 @@ call_uru_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       if (!global_urulive_showtcp) {
 	col_clear(pinfo->cinfo, COL_INFO);
       }
-      col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "%u->%u (%u)",
-			  pinfo->srcport, pinfo->destport, packet_len);
+      /* Using the regular TCP desegmentation we cannot get total *packet*
+	 length, so just leave it off. If it matters, they can configure
+	 the dissector to leave the TCP data in the line. */
+      (void)packet_len; /* shut up compiler */
+      col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "%u->%u",
+			  pinfo->srcport, pinfo->destport);
     }
   }
 
@@ -11151,281 +11215,7 @@ call_uru_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		    RETHROW;
 		  }
 		  CATCH(ReportedBoundsError) {
-#ifndef _WIN32
 		    show_reported_bounds_error(tvb, pinfo, tree);
-#else
-		    /* show_reported_bounds_error is not exported
-		       in libethereal.dll, and while this is not
-		       right (affects whole packet, not message)
-		       it at least compiles... */
-		    RETHROW;
-#endif
 		  }
 		  ENDTRY;
-}
-
-/* 
- * The following desegmentation code is based very heavily on desegment_tcp()
- * and tcp_dissect_pdus() from packet-tcp.c.
- */
-#define LT_SEQ(x, y) ((gint32)((x) - (y)) < 0)
-
-static void
-desegment_urutcp(tvbuff_t *tvb, packet_info *pinfo,
-		 proto_tree *tree, emem_tree_t *multisegment_pdus)
-{
-	struct tcpinfo *tcpinfo;
-	fragment_data *ipfd_head;
-	gboolean called_dissector;
-	int another_pdu_follows;
-	gint nbytes;
-	proto_item *item;
-	proto_item *frag_tree_item;
-	struct tcp_multisegment_pdu *msp;
-
-	int offset = 0;
-	guint32 seq, nxtseq;
-	tvbuff_t *next_tvb;
-	guint new_len;
-	gboolean some_dissected = FALSE;
-	guint length_remaining;
-
-	tcpinfo = pinfo->private_data;
-	seq = tcpinfo->seq;
-	nxtseq = tcpinfo->nxtseq;
-again:
-	ipfd_head=NULL;
-	called_dissector = FALSE;
-	another_pdu_follows = 0;
-	msp=NULL;
-
-
-	length_remaining = tvb_ensure_length_remaining(tvb, offset);
-
-	/* find the most previous PDU starting before this sequence number */
-	msp=se_tree_lookup32_le(multisegment_pdus, seq-1);
-	if(msp && msp->seq<=seq && msp->nxtpdu>seq){
-		guint len;
-
-		if(!pinfo->fd->flags.visited){
-			msp->last_frame=pinfo->fd->num;
-			msp->last_frame_time=pinfo->fd->abs_ts;
-		}
-
-		/* OK, this PDU was found, which means the segment continues
-		   a higher-level PDU and that we must desegment it.
-		*/
-		len=MIN(nxtseq, msp->nxtpdu) - seq;
-		len=MIN(len, length_remaining);
-		ipfd_head = fragment_add(tvb, offset, pinfo, msp->first_frame,
-			urutcp_fragment_table,
-			seq - msp->seq,
-			len,
-			(LT_SEQ (nxtseq,msp->nxtpdu)) );
-		/* if we didnt consume the entire segment there is another pdu
-		 * starting beyong the end of this one 
-		 */
-		if(msp->nxtpdu<nxtseq && len>0){
-			another_pdu_follows=len;
-		}
-	} else {
-		/* This segment was not found in our table, so it doesn't
-		   contain a continuation of a higher-level PDU.
-		   Call the normal subdissector.
-		*/
-
-		/* see if it is long enough */
-		new_len = get_urulive_message_len(NULL,
-						  pinfo, tvb, offset, seq);
-		if ((int)new_len > tvb_reported_length_remaining(tvb, offset)) {
-			int len;
-
-			if (!pinfo->fd->flags.visited) {
-			  /* from pdu_store_sequencenumber_of_next_pdu */
-			  msp=se_alloc(sizeof(struct tcp_multisegment_pdu));
-			  msp->nxtpdu=seq+new_len;
-			  msp->seq=seq;
-			  msp->first_frame=pinfo->fd->num;
-			  msp->last_frame=pinfo->fd->num;
-			  msp->last_frame_time=pinfo->fd->abs_ts;
-			  se_tree_insert32(multisegment_pdus,
-					   seq, (void *)msp);
-
-			  len=MIN(nxtseq - seq, length_remaining);
-
-			  /* add this segment as the first one for this new pdu */
-			  fragment_add(tvb, offset, pinfo, msp->first_frame,
-				       urutcp_fragment_table, 0,
-				       len,
-				       LT_SEQ(nxtseq, msp->nxtpdu));
-			}
-		}
-		else {
-		  /* call dissector */
-		  guint length;
-
-		  if (seq+new_len < nxtseq) {
-		    another_pdu_follows = new_len;
-		  }
-
-    /*
-     * Construct a tvbuff containing the amount of the payload we have
-     * available.  Make its reported length the amount of data in the PDU.
-     *
-     * XXX - if reassembly isn't enabled. the subdissector will throw a
-     * BoundsError exception, rather than a ReportedBoundsError exception.
-     * We really want a tvbuff where the length is "length", the reported
-     * length is "plen", and the "if the snapshot length were infinite"
-     * length is the minimum of the reported length of the tvbuff handed
-     * to us and "plen", with a new type of exception thrown if the offset
-     * is within the reported length but beyond that third length, with
-     * that exception getting the "Unreassembled Packet" error.
-     */
-
-		  length = tvb_ensure_length_remaining(tvb, offset);
-		  if (length > new_len)
-		    length = new_len;
-		  next_tvb = tvb_new_subset(tvb, offset, length, new_len);
-
-		  call_uru_dissector(next_tvb, pinfo, tree, !some_dissected,
-				     tvb_reported_length_remaining(tvb, 0),
-				     seq);
-
-		  called_dissector = TRUE;
-		  some_dissected = TRUE;
-
-		}
-
-		/* Either no desegmentation is necessary, or this is
-		   segment contains the beginning but not the end of
-		   a higher-level PDU and thus isn't completely
-		   desegmented.
-		*/
-		ipfd_head = NULL;
-	}
-
-
-	/* is it completely desegmented? */
-	if(ipfd_head){
-		/*
-		 * Yes, we think it is.
-		 * We only call subdissector for the last segment.
-		 * Note that the last segment may include more than what
-		 * we needed.
-		 */
-		if(ipfd_head->reassembled_in==pinfo->fd->num){
-			/*
-			 * OK, this is the last segment.
-			 * Let's call the subdissector with the desegmented
-			 * data.
-			 */
-
-			/* create a new TVB structure for desegmented data */
-			next_tvb = tvb_new_real_data(ipfd_head->data,
-					ipfd_head->datalen, ipfd_head->datalen);
-
-			/* add this tvb as a child to the original one */
-			tvb_set_child_real_data_tvbuff(tvb, next_tvb);
-
-			/* see if it really is long enough */
-			new_len = get_urulive_message_len(NULL,
-							  pinfo, next_tvb, 0,
-							  msp->seq);
-			if (new_len == ipfd_head->datalen) {
-			  /* call dissector */
-
-				/*
-				 * The subdissector thought it was completely
-				 * desegmented (although the stuff at the
-				 * end may, in turn, require desegmentation),
-				 * so we show a tree with all segments.
-				 */
-				show_fragment_tree(ipfd_head, &uru_frag_items,
-					tree, pinfo, next_tvb, &frag_tree_item);
-
-			  /* add desegmented data to the data source list */
-			  add_new_data_source(pinfo, next_tvb, "Reassembled TCP");
-
-			  call_uru_dissector(next_tvb, pinfo, tree,
-					!some_dissected,
-					tvb_reported_length_remaining(tvb, 0),
-					msp->seq);
-
-			  called_dissector = TRUE;
-			  some_dissected = TRUE;
-			}
-			else if (new_len < ipfd_head->datalen) {
-			  DISSECTOR_ASSERT_NOT_REACHED();
-			}
-			else {
-			  fragment_set_partial_reassembly(pinfo,msp->first_frame,urutcp_fragment_table);
-			  msp->nxtpdu += new_len - ipfd_head->datalen;
-
-			  if (another_pdu_follows) {
-			    seq += another_pdu_follows;
-			    offset += another_pdu_follows;
-			    goto again;
-			  }
-			  else {
-			    /* here, the whole packet was consumed */
-			  }
-			}
-		}
-	}
-
-	if (!called_dissector) {
-		if (ipfd_head != NULL && ipfd_head->reassembled_in != 0 &&
-		    !(ipfd_head->flags & FD_PARTIAL_REASSEMBLY)) {
-			/*
-			 * We know what frame this PDU is reassembled in;
-			 * let the user know.
-			 */
-			item=proto_tree_add_uint(tree, hf_uru_reassembled_in,
-			    tvb, 0, 0, ipfd_head->reassembled_in);
-			PROTO_ITEM_SET_GENERATED(item);
-		}
-
-		/*
-		 * Either we didn't call the subdissector at all (i.e.,
-		 * this is a segment that contains the middle of a
-		 * higher-level PDU, but contains neither the beginning
-		 * nor the end), or the subdissector couldn't dissect it
-		 * all, as some data was missing (i.e., it set
-		 * "pinfo->desegment_len" to the amount of additional
-		 * data it needs).
-		 */
-		if (!some_dissected) {
-			/*
-			 * It couldn't, in fact, dissect any of it (the
-			 * first byte it couldn't dissect is at an offset
-			 * of "pinfo->desegment_offset" from the beginning
-			 * of the payload, and that's 0).
-			 * Just mark this as TCP.
-			 */
-			if (!global_urulive_showtcp
-			    && check_col(pinfo->cinfo, COL_INFO)){
-				col_set_str(pinfo->cinfo, COL_INFO, "[TCP segment of a reassembled PDU]");
-			}
-		}
-
-		/*
-		 * Show what's left in the packet as just raw TCP segment
-		 * data.
-		 * XXX - remember what protocol the last subdissector
-		 * was, and report it as a continuation of that, instead?
-		 */
-		nbytes = tvb_reported_length_remaining(tvb, offset);
-		proto_tree_add_text(tree, tvb, offset, -1,
-		    "TCP segment data (%u byte%s)", nbytes,
-		    plurality(nbytes, "", "s"));
-#ifdef DEVELOPMENT
-		uru_maybe_decrypt(tvb, offset, nbytes, pinfo, tree, seq);
-#endif
-	}
-
-	if (another_pdu_follows) {
-		offset += another_pdu_follows;
-		seq += another_pdu_follows;
-		goto again;
-	}
 }

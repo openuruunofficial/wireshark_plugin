@@ -1370,7 +1370,7 @@ static const value_string typecodes[] = {
   { plClusterGroup, "plClusterGroup" },
   { plGameMarkerModifier, "plGameMarkerModifier" },
   { plLODMipmap, "plLODMipmap" },
-  { plSwimDetector, "plSwimDetector" },
+  { plSwimDetector, "plSwimDetector" }, /* plSwimRegion in UU */
   { plFadeOpacityMod, "plFadeOpacityMod" },
   { plFadeOpacityLay, "plFadeOpacityLay" },
   { plDistOpacityMod, "plDistOpacityMod" },
@@ -1399,7 +1399,7 @@ static const value_string typecodes[] = {
   { plLOSHitMsg, "plLOSHitMsg" },
   { plSingleModMsg, "plSingleModMsg" },
   { plMultiModMsg, "plMultiModMsg" },
-  { plPlayerMsg, "plPlayerMsg" },
+  { plPlayerMsg, "plPlayerMsg" },/* plAvatarPhysicsEnableCallbackMsg in PotS */
   { plMemberUpdateMsg, "plMemberUpdateMsg" },
   { plNetMsgPagingRoom, "plNetMsgPagingRoom" },
   { plActivatorMsg, "plActivatorMsg" },

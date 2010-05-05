@@ -20,16 +20,18 @@ will trust you and use it. The typical signs are lots of
 traces.
 
 Caveats:
-- This version of the plugin requires Wireshark version 1.2.x. It is known
-  not to work properly with the development trunk (AKA 1.3.x).
+- This version of the plugin requires the Wireshark trunk (AKA 1.3.x). Use
+  a tree as of reivision 32627 or newer. The plugin will not work properly
+  on 1.2.7 or older. It will work on 1.2.8 (but the build.patch file will
+  not patch plugins/Makefile.nmake correctly).
 - The plugin has been only lightly tested against bad packets.
 - The plugin has not been tested compiled statically.
 
 TODO:
 - Update field names, etc. to match Cyan's names.
-- Incremental verification of message lengths throughout entire dissection
-  process (see also comment about the "broken brainStack").
 - More dissection: packets matching uru.incomplete (and uru.error).
+- Incremental verification of message lengths throughout entire dissection
+  process.
 - Verification of checksum (UU protocol).
 
 
