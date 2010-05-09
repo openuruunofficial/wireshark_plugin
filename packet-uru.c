@@ -68,13 +68,6 @@
 #define EPHEMERAL_BUFS
 #define RC4_CACHE_FREQ 40000 /* this should probably be tuned */
 
-#ifndef HAVE_REASSEMBLED_LENGTH
-/* In the trunk, winposixtype.h is gone. */
-#ifdef _WIN32
-#include <winposixtype.h>
-#endif
-#endif
-
 #undef INCLUDE_ALL_TYPES /* undef this for non-development compiles */
 #undef DEVELOPMENT /* undef this for non-development compiles */
 
@@ -308,9 +301,11 @@ static const char *global_urulive_keys = "";
 static gboolean global_urulive_use_private_keys = FALSE;
 static const char *global_urulive_auth_file = "";
 static const char *global_urulive_game_file = "";
+static const char *global_urulive_gate_file = "";
 #ifdef HAVE_LIBGCRYPT
 static gcry_mpi_t auth_modulus = NULL, auth_exponent = NULL;
 static gcry_mpi_t game_modulus = NULL, game_exponent = NULL;
+static gcry_mpi_t gate_modulus = NULL, gate_exponent = NULL;
 #endif
 
 static dissector_handle_t urulive_handle;
@@ -7666,12 +7661,15 @@ dissect_urulive_message(tvbuff_t *etvb,
 	/* compute the cilent's half of the key and store it */
 	guint8 be[64];
 	gcry_mpi_t mod, exp;
-	if (live_conv->isgame < 0 && live_conv->isgate < 0) {
+	if (live_conv->isgate > 0) {
+	  mod = gate_modulus;
+	  exp = gate_exponent;
+	}
+	else if (live_conv->isgame < 0) {
 	  mod = auth_modulus;
 	  exp = auth_exponent;
 	}
 	else {
-	  /* game and gate */
 	  mod = game_modulus;
 	  exp = game_exponent;
 	}
@@ -10981,7 +10979,10 @@ proto_reg_handoff_urulive(void) {
   gcry_mpi_release(auth_exponent);
   gcry_mpi_release(game_modulus);
   gcry_mpi_release(game_exponent);
+  gcry_mpi_release(gate_modulus);
+  gcry_mpi_release(gate_exponent);
   auth_modulus = auth_exponent = game_modulus = game_exponent = NULL;
+  gate_modulus = gate_exponent = NULL;
   if (global_urulive_use_private_keys) {
     /* the format of the file is: 128 bytes: 64 bytes of big-endian modulus,
        then 64 bytes of big-endian key */
@@ -11004,6 +11005,18 @@ proto_reg_handoff_urulive(void) {
 	  gcry_mpi_scan(&game_modulus, GCRYMPI_FMT_USG, data, 64, NULL);
 	  if (game_modulus) {
 	    gcry_mpi_scan(&game_exponent, GCRYMPI_FMT_USG, data+64, 64, NULL);
+	  }
+	}
+	fclose(f);
+      }
+    }
+    if (global_urulive_gate_file) {
+      if ((f = ws_fopen(global_urulive_gate_file, "rb")) != NULL) {
+	guint8 data[128];
+	if (fread(data, 128, 1, f) == 1) {
+	  gcry_mpi_scan(&gate_modulus, GCRYMPI_FMT_USG, data, 64, NULL);
+	  if (gate_modulus) {
+	    gcry_mpi_scan(&gate_exponent, GCRYMPI_FMT_USG, data+64, 64, NULL);
 	  }
 	}
 	fclose(f);
@@ -11132,6 +11145,9 @@ proto_register_urulive(void)
   prefs_register_string_preference(uru_module, "game_key_file",
 				   "Game server private key file", "",
 				   &global_urulive_game_file);
+  prefs_register_string_preference(uru_module, "gatekeeper_key_file",
+				   "GateKeeper server private key file", "",
+				   &global_urulive_gate_file);
 
   /* Register protocol init routine */
   register_init_routine(urulive_init_protocol);
