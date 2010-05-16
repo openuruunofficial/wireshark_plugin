@@ -18,8 +18,8 @@ are required to compile the plugin.
 
     Then run automake and autoconf.
 
-4b.) For Windows: edit Makefile.nmake, plugins/Makefile.nmake, and if you
-     plan to build an installer (do this for MSVC versions 7 and up),
+4b.) For Windows: edit epan/libwireshark.def, plugins/Makefile.nmake, and if
+     you plan to build an installer (do this for MSVC versions 7 and up),
      packaging/nsis/wireshark.nsi. If you can apply the build.patch it
      includes the changes necessary. Otherwise... the changes you need are
      at the beginning of build.patch, apply them manually.
