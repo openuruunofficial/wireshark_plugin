@@ -95,7 +95,7 @@ static int hf_urulive_pubage_ct = -1;
 static int hf_urulive_pubage_unk1 = -1;
 static int hf_urulive_pubage_owners = -1;
 static int hf_urulive_pubage_pop = -1;
-static int hf_urulive_login_unk0 = -1;
+static int hf_urulive_login_nonce = -1;
 static int hf_urulive_login_name = -1;
 static int hf_urulive_login_hash = -1;
 static int hf_urulive_login_token = -1;
@@ -2208,7 +2208,7 @@ static hf_register_info hf_live[] = {
       "", HFILL }
   },
   { &hf_urulive_register_reply,
-    { "Server reply", "uru.live.register.reply",
+    { "Server nonce", "uru.live.register.nonce",
       FT_UINT32, BASE_HEX, NULL, 0x0,
       "", HFILL }
   },
@@ -2347,8 +2347,8 @@ static hf_register_info hf_live[] = {
       FT_UINT32, BASE_DEC, NULL, 0x0,
       "", HFILL }
   },
-  { &hf_urulive_login_unk0,
-    { "Unknown", "uru.live.login.unk0",
+  { &hf_urulive_login_nonce,
+    { "Client nonce", "uru.live.login.nonce",
       FT_UINT32, BASE_HEX, NULL, 0x0,
       "", HFILL }
   },

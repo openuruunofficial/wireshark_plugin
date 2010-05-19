@@ -8399,7 +8399,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
 			    4, TRUE);
 	offset += 4;
-	proto_tree_add_item(uru_tree, hf_urulive_login_unk0, tvb, offset,
+	proto_tree_add_item(uru_tree, hf_urulive_login_nonce, tvb, offset,
 			    4, TRUE);
 	offset += 4;
 	str = get_uru_widestring(tvb, offset, &slen);
@@ -9392,7 +9392,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
 			    4, TRUE);
 	offset += 4;
-	proto_tree_add_item(uru_tree, hf_urulive_login_unk0, tvb, offset,
+	proto_tree_add_item(uru_tree, hf_urulive_result/*unconfirmed*/, tvb, offset,
 			    4, TRUE);
 	offset += 4;
       }
