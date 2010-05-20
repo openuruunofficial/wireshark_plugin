@@ -51,7 +51,7 @@ Index: Makefile.am
  	-dlopen plugins/sercosiii/sercosiii.la \
  	-dlopen plugins/stats_tree/stats_tree.la \
  	-dlopen plugins/unistim/unistim.la \
-+	-dlopen plugins/uru/uru.la
++	-dlopen plugins/uru/uru.la \
  	-dlopen plugins/wimax/wimax.la
  
  WTAP_PLUGIN_SOURCES = \
