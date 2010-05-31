@@ -238,6 +238,7 @@ static char * get_uru_hexstring(tvbuff_t *, gint, guint *);
 #define proto_tree_add_STR(t,h,b,o,l,s) \
     proto_tree_add_string(t, h, b, o, l, (s ? s : ""))
 static void add_uru_timestamp(tvbuff_t *, gint, proto_tree *, int, int, int);
+static void append_ts_formatted_with_date(proto_item *, guint32, guint32, gboolean);
 static void append_ts_formatted(proto_item *, guint32, guint32, gboolean);
 static gint dissect_uru_object_subtree(tvbuff_t *, gint, proto_tree *,
 				       int, char **, gboolean,
@@ -5383,8 +5384,8 @@ add_uru_timestamp(tvbuff_t *tvb, gint offset, proto_tree *tree,
 }
 
 static void
-append_ts_formatted(proto_item *ti, guint32 sec, guint32 usec,
-		    gboolean include_usec) {
+append_ts_formatted_with_date(proto_item *ti, guint32 sec, guint32 usec,
+			      gboolean include_usec) {
   /* code from epan/column-utils.c */
   struct tm *tmp;
   time_t then;
@@ -5392,30 +5393,46 @@ append_ts_formatted(proto_item *ti, guint32 sec, guint32 usec,
   then = sec;
   tmp = localtime(&then);
   if (tmp != NULL) {
-    /* while it would be nice to do all the time formats and all the
-       precisions, it just doesn't seem worth the trouble to me */
-    if (timestamp_get_type() == TS_ABSOLUTE_WITH_DATE) {
-      if (include_usec) {
-	proto_item_append_text(ti, " (%04d-%02d-%02d %02d:%02d:%02d.%06ld)",
-			       tmp->tm_year + 1900,
-			       tmp->tm_mon + 1,
-			       tmp->tm_mday,
-			       tmp->tm_hour,
-			       tmp->tm_min,
-			       tmp->tm_sec,
-			       (long)usec);
-      }
-      else {
-	proto_item_append_text(ti, " (%04d-%02d-%02d %02d:%02d:%02d)",
-			       tmp->tm_year + 1900,
-			       tmp->tm_mon + 1,
-			       tmp->tm_mday,
-			       tmp->tm_hour,
-			       tmp->tm_min,
-			       tmp->tm_sec);
-      }
+    if (include_usec) {
+      proto_item_append_text(ti, " (%04d-%02d-%02d %02d:%02d:%02d.%06ld %s)",
+			     tmp->tm_year + 1900,
+			     tmp->tm_mon + 1,
+			     tmp->tm_mday,
+			     tmp->tm_hour,
+			     tmp->tm_min,
+			     tmp->tm_sec,
+			     (long)usec,
+			     tmp->tm_zone);
     }
     else {
+      proto_item_append_text(ti, " (%04d-%02d-%02d %02d:%02d:%02d %s)",
+			     tmp->tm_year + 1900,
+			     tmp->tm_mon + 1,
+			     tmp->tm_mday,
+			     tmp->tm_hour,
+			     tmp->tm_min,
+			     tmp->tm_sec,
+			     tmp->tm_zone);
+    }
+  }
+}
+
+static void
+append_ts_formatted(proto_item *ti, guint32 sec, guint32 usec,
+		    gboolean include_usec) {
+  /* code from epan/column-utils.c */
+  /* while it would be nice to do all the time formats and all the
+     precisions, it just doesn't seem worth the trouble to me */
+  if (timestamp_get_type() == TS_ABSOLUTE_WITH_DATE) {
+    append_ts_formatted_with_date(ti, sec, usec, include_usec);
+  }
+  else {
+    struct tm *tmp;
+    time_t then;
+  
+    then = sec;
+    tmp = localtime(&then);
+    if (tmp != NULL) {
       if (include_usec) {
 	proto_item_append_text(ti, " (%02d:%02d:%02d.%06ld)",
 			       tmp->tm_hour,
@@ -6412,14 +6429,14 @@ add_live_vault_node(tvbuff_t *tvb, gint offset, proto_tree *tree) {
     timecnv = tvb_get_letohl(tvb,offset);
     tf = proto_tree_add_item(tree, hf_urulive_vault_createtime, tvb,
 			offset, 4, TRUE);
-    append_ts_formatted(tf, timecnv, 0, FALSE);
+    append_ts_formatted_with_date(tf, timecnv, 0, FALSE);
     offset += 4;
   }
   if (mask1 & kModifyTime) {
     timecnv = tvb_get_letohl(tvb,offset);
     tf = proto_tree_add_item(tree, hf_urulive_vault_modifytime, tvb,
 			offset, 4, TRUE);
-    append_ts_formatted(tf, timecnv, 0, FALSE);
+    append_ts_formatted_with_date(tf, timecnv, 0, FALSE);
     offset += 4;
   }
   if (mask1 & kCreateAgeName) {
@@ -9331,7 +9348,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	  val = tvb_get_letohl(tvb, offset);
 	  tf = proto_tree_add_item(uru_tree, hf_urulive_score_ts, tvb, offset,
 				   4, TRUE);
-	  append_ts_formatted(tf, val, 0, FALSE);
+	  append_ts_formatted_with_date(tf, val, 0, FALSE);
 	  offset += 4;
 	  proto_tree_add_item(uru_tree, hf_urulive_score_type, tvb, offset,
 			      4, TRUE);
@@ -9372,7 +9389,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	val = tvb_get_letohl(tvb, offset);
 	tf = proto_tree_add_item(uru_tree, hf_urulive_score_ts, tvb, offset,
 				 4, TRUE);
-	append_ts_formatted(tf, val, 0, FALSE);
+	append_ts_formatted_with_date(tf, val, 0, FALSE);
 	offset += 4;
       }
       else if (msgtype16 == kAuth2Cli_AcctChangePasswordReply) {
