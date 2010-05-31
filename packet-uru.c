@@ -237,8 +237,10 @@ static char * get_uru_string(tvbuff_t *, gint, guint *);
 static char * get_uru_hexstring(tvbuff_t *, gint, guint *);
 #define proto_tree_add_STR(t,h,b,o,l,s) \
     proto_tree_add_string(t, h, b, o, l, (s ? s : ""))
-static void add_uru_timestamp(tvbuff_t *, gint, proto_tree *, int, int, int);
-static void append_ts_formatted_with_date(proto_item *, guint32, guint32, gboolean);
+static void add_uru_timestamp(tvbuff_t *, gint, proto_tree *, int, int, int,
+			      gboolean);
+static void append_ts_formatted_with_date(proto_item *, guint32, guint32,
+					  gboolean);
 static void append_ts_formatted(proto_item *, guint32, guint32, gboolean);
 static gint dissect_uru_object_subtree(tvbuff_t *, gint, proto_tree *,
 				       int, char **, gboolean,
@@ -696,7 +698,8 @@ are little-endian, even though PC's are.  Fetch those values using
       proto_tree_add_item(uru_tree, hf_uru_bandwidth, rtvb, offset, 4, TRUE);
       offset += 4;
       add_uru_timestamp(rtvb, offset, uru_tree,
-			hf_uru_nego_ts, hf_uru_nego_sec, hf_uru_nego_usec);
+			hf_uru_nego_ts, hf_uru_nego_sec, hf_uru_nego_usec,
+			FALSE);
       offset += 8;
     }
   }
@@ -1019,7 +1022,7 @@ dissect_netmsg_flags(tvbuff_t *rtvb, gint offset, proto_tree *uru_tree)
   }
   if (netmsgflags & plNetTimestamp) {
     add_uru_timestamp(rtvb, offset, uru_tree,
-		      hf_uru_ts, hf_uru_ts_sec, hf_uru_ts_usec);
+		      hf_uru_ts, hf_uru_ts_sec, hf_uru_ts_usec, FALSE);
     offset += 8;
   }
   if (netmsgflags & plNetX) {
@@ -2058,7 +2061,7 @@ dissect_plNetMessage(guint16 type,
 				   8, TRUE); /* a double according to Alcugs */
 	  t1 = (guint32)t;
 	  t2 = (guint32)((t-t1)*1000000);
-	  append_ts_formatted(tf, t1, t2, TRUE);
+	  append_ts_formatted_with_date(tf, t1, t2, TRUE);
 	  noffset += 8;
 	}
 	else {
@@ -2106,7 +2109,7 @@ dissect_plNetMessage(guint16 type,
 		       global_uru_header_style
                          ? "  ID:%u Stamp:%d.%06d" : "  %u time: %d.%06d",
 		       idx, t1, t2);
-	      append_ts_formatted(tf, t1, t2, TRUE);
+	      append_ts_formatted_with_date(tf, t1, t2, TRUE);
 	      tf = proto_tree_add_item(sub_tree, hf_uru_node_trackid, ntvb,
 				       soffset, 4, TRUE);
 	      PROTO_ITEM_SET_HIDDEN(tf);
@@ -2146,7 +2149,7 @@ dissect_plNetMessage(guint16 type,
 		       global_uru_header_style ? id2 : id3,
 		       global_uru_header_style ? id3 : id1,
 		       f, t1, t2);
-	      append_ts_formatted(tf, t1, t2, FALSE);
+	      append_ts_formatted_with_date(tf, t1, t2, FALSE);
 	      tf = proto_tree_add_item(sub_tree, hf_uru_vault_ref_id1, ntvb,
 				       soffset, 4, TRUE);
 	      PROTO_ITEM_SET_HIDDEN(tf);
@@ -2265,7 +2268,8 @@ dissect_plNetMessage(guint16 type,
 	  PROTO_ITEM_SET_HIDDEN(tf);
 	  noffset += 4;
 	  add_uru_timestamp(ntvb, noffset, tree, hf_uru_vault_node_ts,
-			    hf_uru_vault_node_sec, hf_uru_vault_node_usec);
+			    hf_uru_vault_node_sec, hf_uru_vault_node_usec,
+			    TRUE);
 	  noffset += 8;
 	  proto_tree_add_item(tree, hf_uru_vault_ref_flag, ntvb, noffset,
 			      1, TRUE);
@@ -4242,7 +4246,7 @@ recursively_dissect_sdl(tvbuff_t *ntvb, gint noffset, proto_tree *tree,
     noffset += 1;
     if (sdlflags & SDLFlagTimestamp) {
       add_uru_timestamp(ntvb, noffset, sdl_tree, hf_uru_sdl_timestamp,
-			hf_uru_sdl_ts_sec, hf_uru_sdl_ts_usec);
+			hf_uru_sdl_ts_sec, hf_uru_sdl_ts_usec, FALSE);
       noffset += 8;
     }
     if (sdlflags & SDLFlagNoData) {
@@ -4351,7 +4355,7 @@ recursively_dissect_sdl(tvbuff_t *ntvb, gint noffset, proto_tree *tree,
     noffset += 1;
     if (sdlflags & SDLFlagTimestamp) {
       add_uru_timestamp(ntvb, noffset, sdl_tree, hf_uru_sdl_timestamp,
-			hf_uru_sdl_ts_sec, hf_uru_sdl_ts_usec);
+			hf_uru_sdl_ts_sec, hf_uru_sdl_ts_usec, FALSE);
       noffset += 8;
     }
     if (sdlflags & SDLFlagNoData) {
@@ -5359,7 +5363,7 @@ get_uru_hexstring(tvbuff_t *tvb, gint offset, guint *len)
 
 static void
 add_uru_timestamp(tvbuff_t *tvb, gint offset, proto_tree *tree,
-		  int hf_ts, int hf_sec, int hf_usec) {
+		  int hf_ts, int hf_sec, int hf_usec, gboolean include_date) {
   proto_item *ti, *tf;
   guint32 time[2];
   /*proto_tree_add_item(uru_tree, hf_ts, tvb, offset, 8, TRUE);*/
@@ -5379,7 +5383,12 @@ add_uru_timestamp(tvbuff_t *tvb, gint offset, proto_tree *tree,
   PROTO_ITEM_SET_HIDDEN(tf);
   /* bonus info */
   if (time[0] > 1000000000) { /* Sun Sep  9 01:46:40 2001 GMT */
-    append_ts_formatted(ti, time[0], time[1], TRUE);
+    if (include_date) {
+      append_ts_formatted_with_date(ti, time[0], time[1], TRUE);
+    }
+    else {
+      append_ts_formatted(ti, time[0], time[1], TRUE);
+    }
   }
 }
 
@@ -5813,7 +5822,7 @@ add_sdl_by_type(tvbuff_t *tvb, gint offset, proto_tree *tree,
   else if (type == SDLTypeTIME || type == SDLTypeAGETIMEOFDAY/*XXX check*/) {
     for (i = 0; i < count; i++) {
       add_uru_timestamp(tvb, offset, tree, hf_uru_sdl_val_time,
-			hf_uru_sdl_val_sec, hf_uru_sdl_val_usec);
+			hf_uru_sdl_val_sec, hf_uru_sdl_val_usec, FALSE);
       offset += 8;
     }
   }
@@ -5959,7 +5968,7 @@ get_sdl_record(tvbuff_t *tvb, gint offset, proto_tree *tree,
       return -1;
     }
     add_uru_timestamp(tvb, offset, tree, hf_uru_sdl_timestamp,
-		      hf_uru_sdl_ts_sec, hf_uru_sdl_ts_usec);
+		      hf_uru_sdl_ts_sec, hf_uru_sdl_ts_usec, FALSE);
     offset += 8;
   }
   if (sdlflags & SDLFlagNoData) {
@@ -6202,7 +6211,7 @@ add_vault_node(tvbuff_t *tvb, gint offset, proto_tree *tree, guint32 *idx) {
   }
   offset += 4;
   add_uru_timestamp(tvb, offset, tree, hf_uru_vault_node_ts,
-		    hf_uru_vault_node_sec, hf_uru_vault_node_usec);
+		    hf_uru_vault_node_sec, hf_uru_vault_node_usec, TRUE);
   offset += 8;
   if (mask1 & MId1) {
     proto_tree_add_item(tree, hf_uru_vault_node_id1, tvb,
@@ -6211,12 +6220,12 @@ add_vault_node(tvbuff_t *tvb, gint offset, proto_tree *tree, guint32 *idx) {
   }
   if (mask1 & MStamp2) {
     add_uru_timestamp(tvb, offset, tree, hf_uru_vault_node_ts2,
-		      hf_uru_vault_node_sec2, hf_uru_vault_node_usec2);
+		      hf_uru_vault_node_sec2, hf_uru_vault_node_usec2, TRUE);
     offset += 8;
   }
   if (mask1 & MAgeCoords) { /* a bit of a misnomer */
     add_uru_timestamp(tvb, offset, tree, hf_uru_vault_node_ts3,
-		      hf_uru_vault_node_sec3, hf_uru_vault_node_usec3);
+		      hf_uru_vault_node_sec3, hf_uru_vault_node_usec3, TRUE);
     offset += 8;
   }
   if (mask1 & MAgeName) {
