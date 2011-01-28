@@ -5400,7 +5400,14 @@ append_ts_formatted_with_date(proto_item *ti, guint32 sec, guint32 usec,
   time_t then;
 
   then = sec;
+#ifdef _WIN32
+  /* Windows does not have tm_zone in its struct tm. This is a quick
+     but still correct way to deal. There might be a way to get the local
+     time string. */
+  tmp = gmtime(&then);
+#else
   tmp = localtime(&then);
+#endif
   if (tmp != NULL) {
     if (include_usec) {
       proto_item_append_text(ti, " (%04d-%02d-%02d %02d:%02d:%02d.%06ld %s)",
@@ -5411,7 +5418,12 @@ append_ts_formatted_with_date(proto_item *ti, guint32 sec, guint32 usec,
 			     tmp->tm_min,
 			     tmp->tm_sec,
 			     (long)usec,
-			     tmp->tm_zone);
+#ifdef _WIN32
+			     "GMT"
+#else
+			     tmp->tm_zone
+#endif
+			     );
     }
     else {
       proto_item_append_text(ti, " (%04d-%02d-%02d %02d:%02d:%02d %s)",
@@ -5421,7 +5433,11 @@ append_ts_formatted_with_date(proto_item *ti, guint32 sec, guint32 usec,
 			     tmp->tm_hour,
 			     tmp->tm_min,
 			     tmp->tm_sec,
-			     tmp->tm_zone);
+#ifdef _WIN32
+			     "GMT"
+#else
+			     tmp->tm_zone
+#endif
     }
   }
 }
