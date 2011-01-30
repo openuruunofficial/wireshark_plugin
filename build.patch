@@ -1,7 +1,6 @@
-Index: epan/libwireshark.def
-===================================================================
---- epan/libwireshark.def	(revision 32637)
-+++ epan/libwireshark.def	(working copy)
+diff -u -r wireshark-1.4.0.orig/epan/libwireshark.def wireshark-1.4.0/epan/libwireshark.def
+--- wireshark-1.4.0.orig/epan/libwireshark.def	2010-08-29 15:17:32.000000000 -0700
++++ wireshark-1.4.0/epan/libwireshark.def	2010-09-28 21:36:46.000000000 -0700
 @@ -121,6 +121,8 @@
  create_dissector_handle
  create_persconffile_dir
@@ -11,7 +10,7 @@ Index: epan/libwireshark.def
  data_out_file                   DATA
  dcerpc_add_conv_to_bind_table
  dcerpc_get_proto_hf_opnum
-@@ -904,6 +906,7 @@
+@@ -913,6 +915,7 @@
  show_exception
  show_fragment_seq_tree
  show_fragment_tree
@@ -19,10 +18,9 @@ Index: epan/libwireshark.def
  sid_name_snooping               DATA
  sid_name_table                  DATA
  smb2_cmd_vals                    DATA
-Index: plugins/Makefile.nmake
-===================================================================
---- plugins/Makefile.nmake	(revision 32637)
-+++ plugins/Makefile.nmake	(working copy)
+diff -u -r wireshark-1.4.0.orig/plugins/Makefile.nmake wireshark-1.4.0/plugins/Makefile.nmake
+--- wireshark-1.4.0.orig/plugins/Makefile.nmake	2010-08-29 15:16:09.000000000 -0700
++++ wireshark-1.4.0/plugins/Makefile.nmake	2011-01-30 14:06:12.000000000 -0800
 @@ -21,6 +21,7 @@
  	sercosiii   \
  	stats_tree  \
@@ -31,10 +29,9 @@ Index: plugins/Makefile.nmake
  	wimax       \
  	wimaxasncp
  
-Index: packaging/nsis/wireshark.nsi
-===================================================================
---- packaging/nsis/wireshark.nsi	(revision 32637)
-+++ packaging/nsis/wireshark.nsi	(working copy)
+diff -u -r wireshark-1.4.0.orig/packaging/nsis/wireshark.nsi wireshark-1.4.0/packaging/nsis/wireshark.nsi
+--- wireshark-1.4.0.orig/packaging/nsis/wireshark.nsi	2010-08-29 15:17:43.000000000 -0700
++++ wireshark-1.4.0/packaging/nsis/wireshark.nsi	2010-09-28 21:36:46.000000000 -0700
 @@ -890,6 +890,7 @@
  File "..\..\plugins\profinet\profinet.dll"
  File "..\..\plugins\sercosiii\sercosiii.dll"
@@ -43,10 +40,9 @@ Index: packaging/nsis/wireshark.nsi
  File "..\..\plugins\wimax\wimax.dll"
  File "..\..\plugins\wimaxasncp\wimaxasncp.dll"
  !include "custom_plugins.txt"
-Index: Makefile.am
-===================================================================
---- Makefile.am	(revision 32637)
-+++ Makefile.am	(working copy)
+diff -u -r wireshark-1.4.0.orig/Makefile.am wireshark-1.4.0/Makefile.am
+--- wireshark-1.4.0.orig/Makefile.am	2010-08-29 15:17:53.000000000 -0700
++++ wireshark-1.4.0/Makefile.am	2010-09-28 21:36:46.000000000 -0700
 @@ -279,6 +279,7 @@
  	-dlopen plugins/sercosiii/sercosiii.la \
  	-dlopen plugins/stats_tree/stats_tree.la \
@@ -55,11 +51,10 @@ Index: Makefile.am
  	-dlopen plugins/wimax/wimax.la
  
  WTAP_PLUGIN_SOURCES = \
-Index: configure.in
-===================================================================
---- configure.in	(revision 32637)
-+++ configure.in	(working copy)
-@@ -1886,6 +1886,7 @@
+diff -u -r wireshark-1.4.0.orig/configure.in wireshark-1.4.0/configure.in
+--- wireshark-1.4.0.orig/configure.in	2010-08-29 15:17:51.000000000 -0700
++++ wireshark-1.4.0/configure.in	2010-09-28 21:36:46.000000000 -0700
+@@ -1887,6 +1887,7 @@
    plugins/sercosiii/Makefile
    plugins/stats_tree/Makefile
    plugins/unistim/Makefile
@@ -67,10 +62,9 @@ Index: configure.in
    plugins/wimax/Makefile
    plugins/wimaxasncp/Makefile
    tools/Makefile
-Index: plugins/Makefile.am
-===================================================================
---- plugins/Makefile.am	(revision 32637)
-+++ plugins/Makefile.am	(working copy)
+diff -u -r wireshark-1.4.0.orig/plugins/Makefile.am wireshark-1.4.0/plugins/Makefile.am
+--- wireshark-1.4.0.orig/plugins/Makefile.am	2010-08-29 15:16:09.000000000 -0700
++++ wireshark-1.4.0/plugins/Makefile.am	2010-09-28 21:36:46.000000000 -0700
 @@ -37,6 +37,7 @@
  	sercosiii \
  	stats_tree \
