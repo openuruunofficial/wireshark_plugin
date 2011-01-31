@@ -5438,6 +5438,7 @@ append_ts_formatted_with_date(proto_item *ti, guint32 sec, guint32 usec,
 #else
 			     tmp->tm_zone
 #endif
+			     );
     }
   }
 }
