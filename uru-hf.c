@@ -660,6 +660,9 @@ static int hf_uru_reassembled_in = -1;
 #ifdef HAVE_REASSEMBLED_LENGTH
 static int hf_uru_reassembled_length = -1;
 #endif
+#ifdef HAVE_FRAGMENT_COUNT
+static int hf_uru_fragment_count = -1;
+#endif
 
 static const fragment_items uru_frag_items = {
 	/* Fragment subtrees */
@@ -673,6 +676,9 @@ static const fragment_items uru_frag_items = {
 	&hf_uru_fragment_multiple_tails,
 	&hf_uru_fragment_too_long_fragment,
 	&hf_uru_fragment_error,
+#ifdef HAVE_FRAGMENT_COUNT
+	&hf_uru_fragment_count,
+#endif
 	/* Reassembled in field */
 	&hf_uru_reassembled_in,
 #ifdef HAVE_REASSEMBLED_LENGTH
@@ -5361,6 +5367,11 @@ static hf_register_info hf[] = {
   {&hf_uru_fragment_error,
    {"Message defragmentation error", "uru.fragment.error",
     FT_FRAMENUM, BASE_NONE, NULL, 0x00, NULL, HFILL } },
+#ifdef HAVE_FRAGMENT_COUNT
+  {&hf_uru_fragment_count,
+   {"Message fragment count", "uru.fragment.count",
+    FT_UINT32, BASE_DEC, NULL, 0x00, NULL, HFILL } },
+#endif
 #ifdef HAVE_REASSEMBLED_LENGTH
   {&hf_uru_reassembled_length,
    {"Reassembled length", "uru.reassembled.length",

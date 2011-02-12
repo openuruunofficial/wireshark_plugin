@@ -145,7 +145,6 @@ static int hf_urulive_file_data = -1;
 static int hf_urulive_vault_globalreqid = -1;
 static int hf_urulive_vault_player = -1;
 static int hf_urulive_vault_nodeid = -1;
-static int hf_urulive_vault_unk0 = -1;
 static int hf_urulive_vault_itemct = -1;
 static int hf_urulive_vault_ref = -1;
 static int hf_urulive_vault_len = -1;
@@ -1560,6 +1559,7 @@ static const value_string live_server_game_msgtypes[] = {
 #define FileRcvdFileDownloadChunkTrans 0x17
 #define PingRequestTrans 0x00
 #define FileRcvdFileManifestChunkTrans 0x16 /* name made up */
+#define BuildIdRequestTrans 0x0a
 
 static const value_string file_transactions[] = {
   { ManifestRequestTrans, "ManifestRequestTrans" },
@@ -1567,6 +1567,7 @@ static const value_string file_transactions[] = {
   { FileRcvdFileDownloadChunkTrans, "FileRcvdFileDownloadChunkTrans" },
   { FileRcvdFileManifestChunkTrans, "FileRcvdFileManifestChunkTrans" },
   { PingRequestTrans, "PingRequestTrans" },
+  { BuildIdRequestTrans, "BuildIdRequestTrans" },
   { 0, NULL }
 };
 
@@ -2611,11 +2612,6 @@ static hf_register_info hf_live[] = {
     { "Node Owner", "uru.live.vault.owner",
       FT_INT32, BASE_DEC, NULL, 0x0,
       "If != 0, this is usually the PLR node (type 0x02)", HFILL }
-  },
-  { &hf_urulive_vault_unk0,
-    { "Unknown (zeros)", "uru.live.vault.unk0",
-      FT_UINT32, BASE_HEX, NULL, 0x0,
-      "", HFILL }
   },
   { &hf_urulive_vault_itemct,
     { "Items", "uru.live.vault.items",

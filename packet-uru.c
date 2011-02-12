@@ -64,6 +64,9 @@
 /* Define this if you have the change from revision 31767 in your
    Wireshark tree. */
 #define HAVE_REASSEMBLED_LENGTH
+/* Define this if you have the change from revision 35705 in your
+   Wireshark tree. */
+#undef HAVE_FRAGMENT_COUNT
 
 #define EPHEMERAL_BUFS
 #define RC4_CACHE_FREQ 40000 /* this should probably be tuned */
@@ -7416,6 +7419,11 @@ dissect_urulive_message(tvbuff_t *etvb,
 			      offset+slen, 524-slen, FALSE);
 	  offset += 524;
 	}
+	else if (msgtype == BuildIdRequestTrans) {
+	  proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
+			      4, TRUE);
+	  offset += 4;
+	}
       }
       else {
 	if (msgtype == ManifestRequestTrans) {
@@ -7548,6 +7556,17 @@ dissect_urulive_message(tvbuff_t *etvb,
 				len, TRUE);
 	    offset += len;
 	  }
+	}
+	else if (msgtype == BuildIdRequestTrans) {
+	  proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
+			      4, TRUE);
+	  offset += 4;
+	  proto_tree_add_item(uru_tree, hf_urulive_result, tvb, offset,
+			      4, TRUE);
+	  offset += 4;
+	  proto_tree_add_item(uru_tree, hf_urulive_register_ver, tvb, offset,
+			      4, TRUE);
+	  offset += 4;
 	}
       }
 
@@ -7890,12 +7909,14 @@ dissect_urulive_message(tvbuff_t *etvb,
       proto_tree_add_item(uru_tree, hf_urulive_ping_id, tvb, offset,
 			  4, TRUE);
       offset += 4;
-      proto_tree_add_item(uru_tree, hf_urulive_ping_unk1, tvb, offset,
-			  4, TRUE);
-      offset += 4;
-      proto_tree_add_item(uru_tree, hf_urulive_ping_unk2, tvb, offset,
-			  4, TRUE);
-      offset += 4;
+      if (live_conv->isgame <= 0) {
+	proto_tree_add_item(uru_tree, hf_urulive_ping_unk1, tvb, offset,
+			    4, TRUE);
+	offset += 4;
+	proto_tree_add_item(uru_tree, hf_urulive_ping_unk2, tvb, offset,
+			    4, TRUE);
+	offset += 4;
+      }
     }
   }
   else if (live_conv->isgame > 0 && msgtype16 == kCli2Game_PropagateBuffer) {
@@ -9113,7 +9134,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
 			    4, TRUE);
 	offset += 4;
-	proto_tree_add_item(uru_tree, hf_urulive_vault_unk0, tvb, offset,
+	proto_tree_add_item(uru_tree, hf_urulive_result, tvb, offset,
 			    4, TRUE);
 	offset += 4;
 	count = tvb_get_letohl(tvb, offset);
@@ -9212,7 +9233,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
 			    4, TRUE);
 	offset += 4;
-	proto_tree_add_item(uru_tree, hf_urulive_vault_unk0, tvb, offset,
+	proto_tree_add_item(uru_tree, hf_urulive_result, tvb, offset,
 			    4, TRUE);
 	offset += 4;
       }
@@ -9244,7 +9265,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	proto_tree_add_item(uru_tree, hf_urulive_reqid, tvb, offset,
 			    4, TRUE);
 	offset += 4;
-	proto_tree_add_item(uru_tree, hf_urulive_vault_unk0, tvb, offset,
+	proto_tree_add_item(uru_tree, hf_urulive_result, tvb, offset,
 			    4, TRUE);
 	offset += 4;
       }
@@ -9657,7 +9678,12 @@ get_urulive_message_len(gboolean *final,
     case kCli2Auth_PingRequest: /* 0x00
     case kCli2Game_PingRequest:
     case kCli2GateKeeper_PingRequest: */
-      return 14;
+      if (live_conv->isgame > 0) {
+	return 6;
+      }
+      else {
+	return 14;
+      }
 
     case kCli2Auth_ClientRegisterRequest: /* 0x01
     case kCli2Game_JoinAgeRequest:
