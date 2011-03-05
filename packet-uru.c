@@ -9934,7 +9934,12 @@ get_urulive_message_len(gboolean *final,
     case kAuth2Cli_PingReply: /* 0x00
     case kGame2Cli_PingReply:
     case kGateKeeper2Cli_PingReply: */
-      return 14;
+      if (live_conv->isgame > 0) {
+	return 6;
+      }
+      else {
+	return 14;
+      }
 
     case kAuth2Cli_ServerAddr: /* 0x01
     case kGame2Cli_JoinAgeReply:
