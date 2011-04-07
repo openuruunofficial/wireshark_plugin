@@ -12,7 +12,7 @@
  * The hf_register_info array for the Uru protocol.
  *
  * Copyright (C) 2005-2006  The Alcugs Project Server Team
- * Copyright (C) 2006-2010  a'moaca'
+ * Copyright (C) 2006-2011  a'moaca'
  *
  * $Id$
  *

@@ -3,7 +3,7 @@
  * Routines for Uru dissection
  *
  * Copyright (C) 2005-2006  The Alcugs Project Server Team
- * Copyright (C) 2006-2010  a'moaca' and cjkelly1
+ * Copyright (C) 2006-2011  a'moaca' and cjkelly1
  *
  * $Id$
  *
@@ -7693,7 +7693,7 @@ dissect_urulive_message(tvbuff_t *etvb,
 	proto_tree_add_item(uru_tree, hf_urulive_nego_unk32, tvb, offset,
 			    4, TRUE);
 	offset += 4;
-	proto_tree_add_item(uru_tree, hf_urulive_nego_release, tvb, offset,
+	proto_tree_add_item(uru_tree, hf_urulive_nego_branch, tvb, offset,
 			    4, TRUE);
 	offset += 4;
 	tf = proto_tree_add_item(uru_tree, hf_urulive_nego_idstring, tvb,

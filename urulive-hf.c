@@ -11,7 +11,7 @@
  * urulive-hf.c
  * The hf_register_info array for the Uru Live protocol.
  *
- * Copyright (C) 2006-2010  a'moaca' and cjkelly1
+ * Copyright (C) 2006-2011  a'moaca' and cjkelly1
  *
  * $Id$
  *
@@ -59,7 +59,7 @@ static int hf_urulive_nego_len = -1;
 static int hf_urulive_nego_unk0 = -1;
 static int hf_urulive_nego_ver = -1;
 static int hf_urulive_nego_unk32 = -1;
-static int hf_urulive_nego_release = -1;
+static int hf_urulive_nego_branch = -1;
 static int hf_urulive_nego_idstring = -1;
 static int hf_urulive_nego_datalen = -1;
 static int hf_urulive_nego_data = -1;
@@ -2166,8 +2166,8 @@ static hf_register_info hf_live[] = {
       FT_UINT32, BASE_HEX, NULL, 0x0,
       "", HFILL }
   },
-  { &hf_urulive_nego_release,
-    { "Release number", "uru.live.nego.release",
+  { &hf_urulive_nego_branch,
+    { "Branch ID", "uru.live.nego.branch",
       FT_UINT32, BASE_DEC, NULL, 0x0,
       "", HFILL }
   },
