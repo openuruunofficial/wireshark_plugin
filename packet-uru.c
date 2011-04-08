@@ -73,6 +73,7 @@
 
 #undef INCLUDE_ALL_TYPES /* undef this for non-development compiles */
 #undef DEVELOPMENT /* undef this for non-development compiles */
+#define INCLUDE_MOSS /* undef to remove dissector for MOSS backend protocol */
 
 
 /* Initialize the subtree pointers */
@@ -396,6 +397,30 @@ static void
 uru_maybe_decrypt(tvbuff_t *tvb, int offset, int len, packet_info *pinfo,
 		  proto_tree *tree, guint32 seq);
 #endif /* DEVELOPMENT */
+
+#ifdef INCLUDE_MOSS
+#include "backend_typecodes.h"
+
+/* Initialize the protocol and registered fields */
+static int proto_urumoss = -1;
+static gint ett_urumoss = -1;
+
+/* Set up protocol subtree array */
+static gint *ett_moss[] = {
+  &ett_urumoss
+};
+
+/* Options */
+static guint global_urumoss_port = 14618;
+static gboolean global_urumoss_desegment = TRUE;
+static dissector_handle_t urumoss_handle;
+
+#include "urumoss-hf.c"
+
+/* a fake live_conv (shortest way to reuse some of the code) */
+static struct urulive_conv *moss_conv = NULL;
+
+#endif /* INCLUDE_MOSS */
 
 
 /* Code to actually dissect the packets */
@@ -4811,6 +4836,13 @@ old_icky_heuristic_dissect_sdl(tvbuff_t *ntvb, gint noffset, proto_tree *tree,
 	  noffset += 1;
 
 	  subvarct = tvb_get_guint8(ntvb, noffset);
+#ifdef INCLUDE_MOSS
+	 /* XXX NOTE: MOSS transmits *all* SDL structs with members containing
+	    a subset of fields. This code assumes all are present, so without
+	    the SDL files loaded, we will hit "Help! Misdetected as Alcugs"
+	    because the extra byte representing each field's index is not
+	    treated as such (it's parsed as the 02 flag). */
+#endif
 	  proto_tree_add_item(sub_tree, hf_uru_sdl_sdlct, ntvb, noffset,
 			      1, TRUE);
 	  noffset += 1;
@@ -11309,3 +11341,896 @@ call_uru_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		  }
 		  ENDTRY;
 }
+
+
+#ifdef INCLUDE_MOSS
+
+static void
+dissect_urumoss_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+  /* Set up structures needed to add the protocol subtree and manage it */
+  proto_item *ti = NULL;
+  proto_tree *moss_tree = NULL;
+
+  guint offset = 0;
+/*  proto_item *tf; */
+/*  proto_tree *sub_tree = NULL;*/
+
+  guint msglen, msgtype;
+  gint msgoffset;
+  char *str;
+  guint slen;
+  guint32 val32;
+
+  islive = TRUE;
+
+  while (tvb_length_remaining(tvb, offset) >= 4) {
+    msglen = tvb_get_letohl(tvb, offset);
+    if (msglen >= 8) {
+      msgtype = tvb_get_letohl(tvb, offset+4);
+    }
+    else {
+      msgtype = 0;
+    }
+    msgoffset = offset;
+    if (check_col(pinfo->cinfo, COL_PROTOCOL)) {
+      col_set_str(pinfo->cinfo, COL_PROTOCOL, "Uru/MOSS");
+    }
+    if (check_col(pinfo->cinfo, COL_INFO)) {
+      if (offset == 0) {
+	col_clear(pinfo->cinfo, COL_INFO);
+      }
+      col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "(%u) %s",
+			  msglen,
+			  val_to_str(msgtype,
+				     moss_typecodes,
+				     msgtype & FROM_SERVER
+				       ? "Unknown [Backend] (0x%08x)"
+				       : "Unknown [Frontend] (0x%08x)"));
+      /* this means that multiple calls to the dissector for the same packet
+	 don't affect what was put into the column before */
+      col_set_fence(pinfo->cinfo, COL_INFO);
+    }
+
+    if (tree) { /* we are being asked for details */
+      /* create display subtree for the protocol */
+      ti = proto_tree_add_item(tree, proto_urumoss, tvb, 0, msglen, TRUE);
+      moss_tree = proto_item_add_subtree(ti, ett_urumoss);
+
+      proto_tree_add_item(moss_tree, hf_moss_msglen, tvb, offset,
+			  4, TRUE);
+      offset += 4;
+      proto_tree_add_item(moss_tree, hf_moss_msgtype, tvb, offset,
+			  4, TRUE);
+      offset += 4;
+      proto_tree_add_item(moss_tree, hf_moss_id1, tvb, offset, 4, FALSE);
+      offset += 4;
+      proto_tree_add_item(moss_tree, hf_moss_id2, tvb, offset, 4, TRUE);
+      offset += 4;
+
+      /* this message is the same regardless of who it's from */
+      if ((msgtype & ~FROM_SERVER) == TRACK_INTERAGE_FWD) {
+	proto_tree_add_item(moss_tree, hf_moss_recip_off, tvb, offset,
+			    4, TRUE);
+	offset += 4;
+	{
+	  guint result;
+	  gboolean final;
+
+	  moss_conv->isgame = CERTAIN_YES;
+	  live_conv = moss_conv;
+
+	  result = get_urulive_message_len(&final, pinfo, tvb, offset, 0);
+	  if (msgoffset+msglen >= offset+result) {
+	    tvbuff_t *subtvb;
+
+	    subtvb = tvb_new_subset(tvb, offset, result, -1);
+	    dissect_urulive_message(subtvb, pinfo, moss_tree, 0);
+	  }
+	  offset += result;
+	}
+      }
+      /* these messages are also the same no matter who they are from */
+      else if (msgtype & CLASS_MARKER) {
+	proto_tree_add_item(moss_tree, hf_urulive_gamemgr_gameid, tvb,
+			    offset, 4, TRUE);
+	offset += 4;
+	if (msgtype == MARKER_NEWGAME) {
+	  /* only MARKER_NEWGAME from the client has a clientid here */
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_clientid, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	}
+	else {
+	  proto_tree_add_item(moss_tree, hf_moss_marker_dbid, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	}
+	msgtype &= ~FROM_SERVER;
+	if (msgtype == MARKER_NEWGAME) {
+	  proto_tree_add_item(moss_tree, hf_moss_marker_gameexists, tvb,
+			      offset, 1, TRUE);
+	  offset += 1;
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_gametype, tvb,
+			      offset, 1, TRUE);
+	  offset += 1;
+	  ti = proto_tree_add_item(moss_tree, hf_urulive_vault_uuid_1, tvb,
+				   offset, 16, TRUE);
+	  append_uru_uuid(ti, tvb, offset);
+	  offset += 16;
+	  str = get_uru_string(tvb, offset, &slen);
+	  proto_tree_add_STR(moss_tree, hf_urulive_gamemgr_name, tvb, offset,
+			     slen, str);
+	  MAYBE_FREE(str);
+	  offset += slen;
+	}
+	else if (msgtype == MARKER_GAME_RENAME) {
+	  str = get_uru_string(tvb, offset, &slen);
+	  proto_tree_add_STR(moss_tree, hf_urulive_gamemgr_name, tvb, offset,
+			     slen, str);
+	  MAYBE_FREE(str);
+	  offset += slen;
+	}
+	else if (msgtype == MARKER_GAME_DELETE) {
+	  /* nothing else in message */
+	}
+	else if (msgtype == MARKER_GAME_STOP) {
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_clientid, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	}
+	else if (msgtype == MARKER_DUMP) {
+	  guint idx;
+
+	  val32 = tvb_get_letohl(tvb, offset);
+	  proto_tree_add_item(moss_tree, hf_moss_marker_count, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	  for (idx = 0; idx < val32; idx++) {
+	    proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markerposx, tvb,
+				offset, 8, TRUE);
+	    offset += 8;
+	    proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markerposy, tvb,
+				offset, 8, TRUE);
+	    offset += 8;
+	    proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markerposz, tvb,
+				offset, 8, TRUE);
+	    offset += 8;
+	    proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markernum, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_gamemgr_name, tvb, offset,
+			       slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_age_fname, tvb, offset,
+			       slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	  }
+	}
+	else if (msgtype == MARKER_STATE) {
+	  guint idx;
+
+	  val32 = tvb_get_letohl(tvb, offset);
+	  proto_tree_add_item(moss_tree, hf_moss_marker_count, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	  for (idx = 0; idx < val32; idx++) {
+	    proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markernum,
+				tvb, offset, 4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_marker_captured,
+				tvb, offset, 4, TRUE);
+	    offset += 4;
+	  }
+	}
+	else if (msgtype == MARKER_ADD) {
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markerposx, tvb,
+			      offset, 8, TRUE);
+	  offset += 8;
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markerposy, tvb,
+			      offset, 8, TRUE);
+	  offset += 8;
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markerposz, tvb,
+			      offset, 8, TRUE);
+	  offset += 8;
+	  /* XXX can't use gamemgr_markernum unless we change it to signed */
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markernum, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	  str = get_uru_string(tvb, offset, &slen);
+	  proto_tree_add_STR(moss_tree, hf_urulive_gamemgr_name, tvb, offset,
+			     slen, str);
+	  MAYBE_FREE(str);
+	  offset += slen;
+	  str = get_uru_string(tvb, offset, &slen);
+	  proto_tree_add_STR(moss_tree, hf_urulive_age_fname, tvb, offset,
+			     slen, str);
+	  MAYBE_FREE(str);
+	  offset += slen;
+	}
+	else if (msgtype == MARKER_RENAME) {
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markernum, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	  str = get_uru_string(tvb, offset, &slen);
+	  proto_tree_add_STR(moss_tree, hf_urulive_gamemgr_name, tvb, offset,
+			     slen, str);
+	  MAYBE_FREE(str);
+	  offset += slen;
+	}
+	else if (msgtype == MARKER_DELETE) {
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markernum, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	}
+	else if (msgtype == MARKER_CAPTURE) {
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_clientid, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	  proto_tree_add_item(moss_tree, hf_urulive_gamemgr_markernum, tvb,
+			      offset, 4, TRUE);
+	  offset += 4;
+	  proto_tree_add_item(moss_tree, hf_moss_marker_captured,
+			      tvb, offset, 4, TRUE);
+	  offset += 4;
+	}
+      }
+      else if (msgtype & FROM_SERVER) {
+	msgtype &= ~FROM_SERVER;
+	if (msgtype & CLASS_ADMIN) {
+	  if (msgtype == ADMIN_HELLO) {
+	    proto_tree_add_item(moss_tree, hf_moss_protocol_version, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	}
+	else if (msgtype & CLASS_AUTH) {
+	  if (msgtype == AUTH_ACCT_LOGIN) {
+	    guint result;
+	    gboolean final;
+
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    result = tvb_get_letohl(tvb, offset);
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    if (result == 0) {
+	      ti = proto_tree_add_item(moss_tree, hf_urulive_login_acct, tvb,
+				       offset, 16, TRUE);
+	      append_uru_uuid(ti, tvb, offset);
+	      offset += 16;
+	      result = tvb_get_letohs(tvb, offset);
+	      if (result == 0 || result == 1) {
+		proto_tree_add_item(moss_tree, hf_moss_accttype, tvb,
+				    offset, 4, TRUE);
+		offset += 4;
+	      }
+	      str = get_uru_string(tvb, offset, &slen);
+	      proto_tree_add_STR(moss_tree, hf_moss_download_name, tvb,
+				 offset, slen, str);
+	      MAYBE_FREE(str);
+	      offset += slen;
+	      /* next are AcctPlayerInfo messages, verbatim */
+	      while (msgoffset+msglen > offset) {
+		if (check_col(pinfo->cinfo, COL_INFO)) {
+		  col_append_fstr(pinfo->cinfo, COL_INFO, " / ");
+		}
+
+		moss_conv->isgame = CERTAIN_NO;
+		live_conv = moss_conv;
+		isclient = FALSE;
+
+		result = get_urulive_message_len(&final, pinfo, tvb, offset, 0);
+		if (msgoffset+msglen >= offset+result) {
+		  tvbuff_t *subtvb;
+
+		  subtvb = tvb_new_subset(tvb, offset, result, -1);
+		  dissect_urulive_message(subtvb, pinfo, moss_tree, 0);
+		}
+		offset += result;
+	      }
+	    }
+	  }
+	  else if (msgtype == AUTH_KI_VALIDATE) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == AUTH_CHANGE_PASSWORD) {
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	}
+	else if (msgtype & CLASS_VAULT) {
+	  switch (msgtype) {
+	  case VAULT_PLAYER_CREATE:
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    val32 = tvb_get_letohl(tvb, offset);
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    if (val32 == 0) {
+	      proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				  offset, 4, TRUE);
+	      offset += 4;
+	      proto_tree_add_item(moss_tree, hf_urulive_plist_type, tvb,
+				  offset, 4, TRUE);
+	      offset += 4;
+	      str = get_uru_string(tvb, offset, &slen);
+	      proto_tree_add_STR(moss_tree, hf_urulive_plist_name, tvb,
+				 offset, slen, str);
+	      MAYBE_FREE(str);
+	      offset += slen;
+	      str = get_uru_string(tvb, offset, &slen);
+	      proto_tree_add_STR(moss_tree, hf_urulive_plist_gender, tvb,
+				 offset, slen, str);
+	      MAYBE_FREE(str);
+	      offset += slen;
+	    }
+	    break;
+	  case VAULT_PLAYER_DELETE:
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    break;
+	  case VAULT_PASSTHRU:
+	    /* passthrough regular-format messages */
+	    {
+	      guint result;
+	      gboolean final;
+
+	      moss_conv->isgame = CERTAIN_NO;
+	      live_conv = moss_conv;
+	      isclient = FALSE;
+
+	      result = get_urulive_message_len(&final, pinfo, tvb, offset, 0);
+	      if (msgoffset+msglen >= offset+result) {
+		tvbuff_t *subtvb;
+
+		subtvb = tvb_new_subset(tvb, offset, result, -1);
+		dissect_urulive_message(subtvb, pinfo, moss_tree, 0);
+	      }
+	      offset += result;
+	    }
+	    break;
+	  default:
+	    break;
+	  }
+	}
+	else if (msgtype & CLASS_ADMIN) {
+	  if (msgtype == ADMIN_KILL_CLIENT) {
+	    val32 = tvb_get_letohl(tvb, offset);
+	    proto_tree_add_item(moss_tree, hf_moss_killreason, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    if (val32 == 4) { /* AUTH_DISCONNECT */
+	      proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				  offset, 4, TRUE);
+	      offset += 4;
+	    }
+	  }
+	}
+	else if (msgtype & CLASS_TRACK) {
+	  if (msgtype == TRACK_GAME_BYE) {
+	    /* nothing to do */
+	  }
+	  else if (msgtype == TRACK_SDL_UPDATE) {
+	    proto_tree *sdl_tree;
+	    guint16 flag16;
+	    gint noffset;
+
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_id1, tvb,
+				offset, 4, FALSE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_id2, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    ti = proto_tree_add_item(moss_tree, hf_moss_sdlupdate_type, tvb,
+				     offset, 4, TRUE);
+	    offset += 4;
+	    val32 = tvb_get_letohl(tvb, offset);
+	    ti = proto_tree_add_item(moss_tree, hf_uru_sdl_sdllen, tvb,
+				     offset, 4, TRUE);
+	    offset += 4;
+	    /* SDL parser */
+	    sdl_tree = proto_item_add_subtree(ti, ett_sdl_subsdl);
+	    flag16 = tvb_get_letohs(tvb, offset);
+	    ti = proto_tree_add_item(sdl_tree, hf_uru_gamemsg_type, tvb,
+				     offset, 2, TRUE);
+	    if (flag16 == 0x8000) {
+	      PROTO_ITEM_SET_HIDDEN(ti);
+	    }
+	    noffset = offset + 2;
+	    noffset = dissect_sdl_msg(tvb, noffset, sdl_tree, offset+val32);
+	    if (noffset - offset < val32) {
+	      proto_tree_add_boolean_format(sdl_tree, hf_uru_dissection_error,
+					    tvb, noffset,
+					    val32 - (noffset-offset), 1,
+					    "Too much data");
+	    }
+	    offset = noffset;
+	  }
+	  else if (msgtype == TRACK_NEXT_GAMEID) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_itemct, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_gamemgr_gameid, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_FIND_GAME) {
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_age_id, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_age_UUID, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    proto_tree_add_item(moss_tree, hf_urulive_age_nodeid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_age_addr, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_START_GAME) {
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_age_UUID, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_age_fname, tvb,
+			       offset, slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	  }
+	  else if (msgtype == TRACK_ADD_PLAYER) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_login_acct, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    if (msgoffset+msglen >= offset+2) {
+	      /* oops, first version didn't have the player name */
+	      str = get_uru_string(tvb, offset, &slen);
+	      proto_tree_add_STR(moss_tree, hf_urulive_plist_name, tvb,
+				 offset, slen, str);
+	      MAYBE_FREE(str);
+	      offset += slen;
+	    }
+	  }
+	  else if (msgtype == TRACK_FIND_SERVICE) {
+	    guint8 serv_addrtype;
+
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_gate_reqid2, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_gate_type, tvb, offset,
+				1, TRUE);
+	    offset += 3;
+	    serv_addrtype = tvb_get_guint8(tvb, offset);
+	    proto_tree_add_item(moss_tree, hf_moss_gate_addrtype, tvb, offset,
+				1, TRUE);
+	    offset += 1;
+	    if (serv_addrtype == 1) {
+	      /* hostname */
+	      str = get_uru_string(tvb, offset, &slen);
+	      proto_tree_add_STR(moss_tree, hf_moss_gate_name, tvb, offset,
+				 slen, str);
+	      MAYBE_FREE(str);
+	      offset += slen;
+	    }
+	    else {
+	      proto_tree_add_item(moss_tree, hf_moss_gate_ipaddr, tvb, offset,
+				  4, FALSE);
+	      offset += 4;
+	    }
+	  }
+	}
+	else {
+	}
+      }
+      else {
+	if (msgtype & CLASS_AUTH) {
+	  if (msgtype == AUTH_ACCT_LOGIN) {
+	    guint32 hash1, hash2, hash3, hash4, hash5;
+
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    val32 = tvb_get_letohl(tvb, offset);
+	    proto_tree_add_item(moss_tree, hf_moss_login_authtype, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    str = get_uru_widestring(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_login_name, tvb, offset,
+			       slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	    hash1 = tvb_get_letohl(tvb, offset);
+	    hash2 = tvb_get_letohl(tvb, offset+4);
+	    hash3 = tvb_get_letohl(tvb, offset+8);
+	    hash4 = tvb_get_letohl(tvb, offset+12);
+	    hash5 = tvb_get_letohl(tvb, offset+16);
+	    proto_tree_add_bytes_format_value(moss_tree, hf_urulive_login_hash,
+					      tvb, offset, 20,
+					      tvb_get_ptr(tvb, offset, 20),
+					      "%08x %08x %08x %08x %08x",
+					      hash1, hash2, hash3, hash4,
+					      hash5);
+	    offset += 20;
+	    if (val32 != 0/*PLAIN_HASH*/) {
+	      proto_tree_add_item(moss_tree, hf_urulive_register_reply, tvb,
+				  offset, 4, TRUE);
+	      offset += 4;
+	      proto_tree_add_item(moss_tree, hf_urulive_login_nonce, tvb,
+				  offset, 4, TRUE);
+	      offset += 4;
+	    }
+	  }
+	  else if (msgtype == AUTH_KI_VALIDATE) {
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_login_acct, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == AUTH_PLAYER_LOGOUT) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == AUTH_CHANGE_PASSWORD) {
+	    guint32 hash1, hash2, hash3, hash4, hash5;	  
+
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_login_acct, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_login_name, tvb, offset,
+			       slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	    hash1 = tvb_get_letohl(tvb, offset);
+	    hash2 = tvb_get_letohl(tvb, offset+4);
+	    hash3 = tvb_get_letohl(tvb, offset+8);
+	    hash4 = tvb_get_letohl(tvb, offset+12);
+	    hash5 = tvb_get_letohl(tvb, offset+16);
+	    proto_tree_add_bytes_format_value(moss_tree, hf_urulive_login_hash,
+					      tvb, offset, 20,
+					      tvb_get_ptr(tvb, offset, 20),
+					      "%08x %08x %08x %08x %08x",
+					      hash1, hash2, hash3, hash4,
+					      hash5);
+	    offset += 20;
+	  }
+	}
+	else if (msgtype & CLASS_VAULT) {
+	  switch (msgtype) {
+	  case VAULT_PLAYER_CREATE:
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_login_acct, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_create_name, tvb,
+			       offset, slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_create_gender, tvb,
+			       offset, slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	    break;
+	  case VAULT_PLAYER_DELETE:
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    break;
+	  case VAULT_PASSTHRU:
+	    /* passthrough regular-format messages */
+	    {
+	      guint result;
+	      gboolean final;
+
+	      moss_conv->isgame = CERTAIN_NO;
+	      live_conv = moss_conv;
+	      isclient = TRUE;
+
+	      result = get_urulive_message_len(&final, pinfo, tvb, offset, 0);
+	      if (msgoffset+msglen >= offset+result) {
+		tvbuff_t *subtvb;
+
+		subtvb = tvb_new_subset(tvb, offset, result, -1);
+		dissect_urulive_message(subtvb, pinfo, moss_tree, 0);
+	      }
+	      offset += result;
+	    }
+	    break;
+	  default:
+	    break;
+	  }
+	}
+	else if (msgtype & CLASS_ADMIN) {
+	  if (msgtype == ADMIN_HELLO) {
+	    proto_tree_add_item(moss_tree, hf_moss_servertypes, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	}
+	else if (msgtype & CLASS_TRACK) {
+	  if (msgtype == TRACK_PING
+	      || msgtype == TRACK_DISPATCHER_BYE) {
+	    /* nothing to do */
+	  }
+	  else if (msgtype == TRACK_FIND_GAME) {
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_age_UUID, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    str = get_uru_string(tvb, offset, &slen);
+	    proto_tree_add_STR(moss_tree, hf_urulive_age_fname, tvb,
+			       offset, slen, str);
+	    MAYBE_FREE(str);
+	    offset += slen;
+	  }
+	  else if (msgtype == TRACK_GAME_HELLO) {
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_age_UUID, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	    proto_tree_add_item(moss_tree, hf_urulive_age_id, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_age_addr, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_DISPATCHER_HELLO) {
+	    proto_tree_add_item(moss_tree, hf_moss_restrict_type, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_START_GAME) {
+	    proto_tree_add_item(moss_tree, hf_moss_fail_reason, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    ti = proto_tree_add_item(moss_tree, hf_urulive_age_UUID, tvb,
+				     offset, 16, TRUE);
+	    append_uru_uuid(ti, tvb, offset);
+	    offset += 16;
+	  }
+	  else if (msgtype == TRACK_ADD_PLAYER) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_urulive_result, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_GAME_BYE) {
+	    proto_tree_add_item(moss_tree, hf_moss_final_shutdown, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_GAME_PLAYERINFO) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_player, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_player_present, tvb,
+				offset, 1, TRUE);
+	    offset++;
+	  }
+	  else if (msgtype == TRACK_NEXT_GAMEID) {
+	    proto_tree_add_item(moss_tree, hf_urulive_vault_itemct, tvb,
+				offset, 4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_SERVICE_TYPES) {
+	    guint8 serv_addrtype;
+
+	    proto_tree_add_item(moss_tree, hf_moss_gate_auth, tvb, offset,
+				1, TRUE);
+	    offset++;
+	    proto_tree_add_item(moss_tree, hf_moss_gate_file, tvb, offset,
+				1, TRUE);
+	    offset++;
+	    proto_tree_add_item(moss_tree, hf_moss_gate_game, tvb, offset,
+				1, TRUE);
+	    offset++;
+	    serv_addrtype = tvb_get_guint8(tvb, offset);
+	    proto_tree_add_item(moss_tree, hf_moss_gate_addrtype, tvb, offset,
+				1, TRUE);
+	    offset += 1;
+	    if (serv_addrtype == 1) {
+	      /* hostname */
+	      str = get_uru_string(tvb, offset, &slen);
+	      proto_tree_add_STR(moss_tree, hf_moss_gate_name, tvb, offset,
+				 slen, str);
+	      MAYBE_FREE(str);
+	      offset += slen;
+	    }
+	    else {
+	      proto_tree_add_item(moss_tree, hf_moss_gate_ipaddr, tvb, offset,
+				  4, FALSE);
+	      offset += 4;
+	    }
+	    proto_tree_add_item(moss_tree, hf_moss_gate_push, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_restrict_type, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	  }
+	  else if (msgtype == TRACK_FIND_SERVICE) {
+	    proto_tree_add_item(moss_tree, hf_urulive_reqid, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_gate_reqid2, tvb, offset,
+				4, TRUE);
+	    offset += 4;
+	    proto_tree_add_item(moss_tree, hf_moss_gate_type, tvb, offset,
+				1, TRUE);
+	    offset++;
+	  }
+	}
+	else {
+	}
+      }
+      if (msgoffset+msglen != offset) {
+	if (msgoffset+msglen < offset) {
+	  proto_tree_add_boolean_format(moss_tree, hf_uru_dissection_error,
+					tvb, offset,
+					offset-(msgoffset+msglen), 1,
+					"Too little data presented");
+	}
+	else {
+	  proto_tree_add_boolean_format(moss_tree, hf_uru_dissection_error,
+					tvb, offset,
+					(msgoffset+msglen)-offset, 1,
+					"Too much data presented");
+	}
+	offset = msgoffset+msglen;
+      }
+    }
+    else {
+      offset = msgoffset+msglen;
+    }
+  }
+}
+
+static guint
+get_urumoss_message_len(packet_info *pinfo, tvbuff_t *tvb, int offset) {
+  (void)pinfo;
+  return tvb_get_letohl(tvb, offset);
+}
+
+static void
+dissect_urumoss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+  tcp_dissect_pdus(tvb, pinfo, tree, global_urumoss_desegment, 4,
+		   get_urumoss_message_len, dissect_urumoss_message);
+}
+
+/********** plugin hooks **********/
+
+void
+proto_reg_handoff_urumoss(void) {
+  static gboolean inited = FALSE;
+
+  if (!inited) {
+    urumoss_handle = create_dissector_handle(dissect_urumoss, proto_urumoss);
+    inited = TRUE;
+  }
+  else {
+    dissector_delete("tcp.port", global_urumoss_port, urumoss_handle);
+  }
+
+  dissector_add("tcp.port", global_urumoss_port, urumoss_handle);
+}
+
+static void
+urumoss_init_protocol(void) {
+  /* set up moss_conv */
+  moss_conv = (struct urulive_conv*)se_alloc(sizeof(struct urulive_conv));
+  moss_conv->isdata = moss_conv->ispre4 = moss_conv->isv1 = moss_conv->ispre9
+    = CERTAIN_NO;
+  moss_conv->c2s_multisegment_pdus = moss_conv->s2c_multisegment_pdus = NULL;
+  moss_conv->negotiation_done = moss_conv->state_known = TRUE;
+  moss_conv->is_encrypted = FALSE;
+
+  moss_conv->isgame = CERTAIN_NO; /* can be changed */
+}
+
+/* Register the protocol with Wireshark */
+void
+proto_register_urumoss(void)
+{
+  module_t *moss_module;
+
+  /* Register the protocol name and description */
+  if (proto_urumoss == -1) {
+    proto_urumoss = proto_register_protocol (
+			"Uru/MOSS Backend Protocol",	/* name */
+			"Uru/MOSS",			/* short name */
+			"urumoss"			/* abbrev */
+			);
+  }
+
+  /* Required function calls to register the header fields and subtrees used */
+  proto_register_field_array(proto_urumoss, hf_moss, array_length(hf_moss));
+  proto_register_subtree_array(ett_moss, array_length(ett_moss));
+
+
+  /* Register preferences module (See Section 2.6 for more on preferences) */
+  moss_module = prefs_register_protocol(proto_urumoss,
+					proto_reg_handoff_urumoss);
+  prefs_register_uint_preference(moss_module, "port",
+				 "Server TCP Port",
+				 "Set the TCP port number for MOSS "
+				 "(if other than the default of 14618).",
+				 10,
+				 &global_urumoss_port);
+  prefs_register_bool_preference(moss_module, "desegment",
+				 "Reassemble MOSS messages spanning "
+				 "multiple TCP segments",
+				 "Whether the MOSS dissector should "
+				 "reassemble messages spanning multiple TCP "
+				 "segments.",
+				 &global_urumoss_desegment);
+
+  /* Register protocol init routine */
+  register_init_routine(urumoss_init_protocol);
+}
+
+#else /* !INCLUDE_MOSS */
+/* this is required for the autogenerated plugin.c */
+void proto_register_urumoss() { };
+void proto_reg_handoff_urumoss() { };
+#endif /* INCLUDE_MOSS */
