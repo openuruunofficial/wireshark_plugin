@@ -202,6 +202,7 @@ static int hf_urulive_create_name = -1;
 static int hf_urulive_create_gender = -1;
 static int hf_urulive_create_code = -1;
 static int hf_urulive_log_python = -1;
+static int hf_urulive_debugger = -1;
 static int hf_urulive_score_holder = -1;
 static int hf_urulive_score_name = -1;
 static int hf_urulive_score_unk1 = -1;
@@ -2883,6 +2884,11 @@ static hf_register_info hf_live[] = {
   { &hf_urulive_log_python,
     { "Python traceback", "uru.live.log.python",
       FT_STRING, BASE_NONE, NULL, 0x0,
+      "", HFILL }
+  },
+  { &hf_urulive_debugger,
+    { "Zero", "uru.live.debugger",
+      FT_UINT32, BASE_DEC, NULL, 0x0,
       "", HFILL }
   },
   { &hf_urulive_score_holder,

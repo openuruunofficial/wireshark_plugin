@@ -8856,14 +8856,23 @@ dissect_urulive_message(tvbuff_t *etvb,
 	offset += 20;
       }
       else if (msgtype16 == kCli2Auth_LogPythonTraceback
-	       || msgtype16 == kCli2Auth_LogStackDump
-	       || msgtype16 == kCli2Auth_LogClientDebuggerConnect) {
+	       || msgtype16 == kCli2Auth_LogStackDump) {
 	str = get_uru_widestring(tvb, offset, &slen);
 	/* XXX make new lines where there are newlines in the string :) */
 	proto_tree_add_STR(uru_tree, hf_urulive_log_python, tvb,
 			   offset, slen, str);
 	MAYBE_FREE(str);
 	offset += slen;
+      }
+      else if (msgtype16 == kCli2Auth_LogClientDebuggerConnect) {
+	guint32 zero;
+	zero = tvb_get_letohl(tvb, offset);
+	tf = proto_tree_add_item(uru_tree, hf_urulive_debugger, tvb, offset,
+				 4, TRUE);
+	offset += 4;
+	if (global_uru_hide_stuff && zero == 0) {
+	  PROTO_ITEM_SET_HIDDEN(tf);
+	}
       }
       else if (live_conv->isgame > 0
 	       && msgtype16 == kCli2Game_JoinAgeRequest) {
@@ -9951,13 +9960,14 @@ get_urulive_message_len(gboolean *final,
       return 18;
     case kCli2Auth_LogPythonTraceback: /* 0x2B */
     case kCli2Auth_LogStackDump: /* 0x2C */
-    case kCli2Auth_LogClientDebuggerConnect: /* 0x2D */
       if (length_remaining < 4) {
 	*final = FALSE;
 	return 4;
       }
       len = tvb_get_letohs(tvb, offset+2) & 0x0FFF;
       return 4+(2*len);
+    case kCli2Auth_LogClientDebuggerConnect: /* 0x2D */
+      return 6;
     }
   }
   else { /* !isclient */
