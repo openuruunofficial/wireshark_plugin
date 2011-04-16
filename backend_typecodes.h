@@ -18,7 +18,7 @@
 
 /* 
  * MOSS changeset  0:b0eafa2ca757
- * $Id: $
+ * $Id$
  */
 
 /*
