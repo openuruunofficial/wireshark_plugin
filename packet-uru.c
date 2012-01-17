@@ -66,7 +66,7 @@
 #define HAVE_REASSEMBLED_LENGTH
 /* Define this if you have the change from revision 35705 in your
    Wireshark tree. */
-#undef HAVE_FRAGMENT_COUNT
+#define HAVE_FRAGMENT_COUNT
 
 #define EPHEMERAL_BUFS
 #define RC4_CACHE_FREQ 40000 /* this should probably be tuned */
